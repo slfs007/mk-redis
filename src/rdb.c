@@ -776,16 +776,14 @@ int rdbSaveRio(rio *rdb, int *error) {
             sds keystr = dictGetKey(de);
             robj key, *o = dictGetValRDB(d,de);
             long long expire;
-            redisLog(REDIS_NOTICE,"rdbsave:%s",de->key);
+
             initStaticStringObject(key,keystr);
             expire = getExpire(db,&key);
             if (o){
-                redisLog(REDIS_NOTICE,"save it");
+
                 if (rdbSaveKeyValuePair(rdb,&key,o,expire,now) == -1) goto werr;
             }
-            else{
-                redisLog(REDIS_NOTICE,"NULL");
-            }
+
         }
         dictReleaseIterator(di);
     }
