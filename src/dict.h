@@ -34,7 +34,8 @@
  */
 
 #include <stdint.h>
-
+#include <pthread.h>
+#include <string.h>
 #ifndef __DICT_H
 #define __DICT_H
 
@@ -43,11 +44,20 @@
 
 /* Unused arguments generate annoying warnings... */
 #define DICT_NOTUSED(V) ((void) V)
-
+/* cur 0 and cur 1 ,can not modify!!!*/
+#define DICT_ENTRY_CUR_0        0
+#define DICT_ENTRY_CUR_1        1
+#define DICT_ENTRY_EQUAL        2
+#define DICT_ENTRY_WAIT_FREE    4
+#define DICT_ENTRY_CREAT_CKP    5
+#define DICT_ENTRY_CAN_ACCESS       1
+#define DICT_ENTRY_CANNOT_ACCESS    0
 typedef struct dictEntry {
     void *key;
+    unsigned char state;
+    unsigned char access;
     union {
-        void *val;
+        void *val[2];
         uint64_t u64;
         int64_t s64;
         double d;
@@ -72,8 +82,14 @@ typedef struct dictht {
     unsigned long sizemask;
     unsigned long used;
 } dictht;
-
+#define DICT_NORMAL     2
+#define DICT_CKP_0      0
+#define DICT_CKP_1      1
 typedef struct dict {
+    /*MK ADD*/
+    pthread_spinlock_t de_spin;
+    unsigned char state;
+    /*MK END*/
     dictType *type;
     void *privdata;
     dictht ht[2];
@@ -100,17 +116,17 @@ typedef void (dictScanFunction)(void *privdata, const dictEntry *de);
 #define DICT_HT_INITIAL_SIZE     4
 
 /* ------------------------------- Macros ------------------------------------*/
-#define dictFreeVal(d, entry) \
+/*#define dictFreeVal(d, entry) \
     if ((d)->type->valDestructor) \
         (d)->type->valDestructor((d)->privdata, (entry)->v.val)
-
-#define dictSetVal(d, entry, _val_) do { \
+*/
+/*#define dictSetVal(d, entry, _val_) do { \
     if ((d)->type->valDup) \
         entry->v.val = (d)->type->valDup((d)->privdata, _val_); \
     else \
         entry->v.val = (_val_); \
 } while(0)
-
+*/
 #define dictSetSignedIntegerVal(entry, _val_) \
     do { entry->v.s64 = _val_; } while(0)
 
@@ -138,7 +154,7 @@ typedef void (dictScanFunction)(void *privdata, const dictEntry *de);
 
 #define dictHashKey(d, key) (d)->type->hashFunction(key)
 #define dictGetKey(he) ((he)->key)
-#define dictGetVal(he) ((he)->v.val)
+#define dictGetVal(he) ((he)->v.val[0])
 #define dictGetSignedIntegerVal(he) ((he)->v.s64)
 #define dictGetUnsignedIntegerVal(he) ((he)->v.u64)
 #define dictGetDoubleVal(he) ((he)->v.d)

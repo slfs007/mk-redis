@@ -64,7 +64,176 @@ static int _dictExpandIfNeeded(dict *ht);
 static unsigned long _dictNextPower(unsigned long size);
 static int _dictKeyIndex(dict *ht, const void *key);
 static int _dictInit(dict *ht, dictType *type, void *privDataPtr);
+/*MK ADD*/
 
+static void _dictFreeVal(dict *d,dictEntry *de);
+static dictEntry *_dictEntryNew( dict *d);
+static void _dictEntryDel(dict *d,dictEntry *de);
+static void _dictSetVal(dict *d,dictEntry *de,void *val);
+static void *_dictGetVal(dictEntry *de);
+static void _dictFreeValNormal(dict *d,dictEntry *de);
+static void _dictFreeAndSetVal(dict *d,dictEntry *de,void *val);
+static void _dictFreeValCkp(dict *d,dictEntry *de);
+
+static void _dictFreeVal(dict *d,dictEntry *de)
+{
+    if ( DICT_NORMAL == d->state)
+        _dictFreeValNormal(d,de);
+    else
+        _dictFreeValCkp(d,de);
+}
+static void _dictFreeValCkp(dict *d,dictEntry *de)
+{
+
+    if ( DICT_ENTRY_EQUAL == de->state){
+        de->state = DICT_ENTRY_WAIT_FREE;
+    }
+
+    else if ( DICT_ENTRY_CUR_0 == de->state || DICT_ENTRY_CUR_1 == de->state){
+        unsigned char idx;
+        idx = de->state;
+        if (d->type->valDestructor)
+            d->type->valDestructor(d->privdata,de->v.val[idx]);
+        de->v.val[idx] = de->v.val[!idx];
+        de->state = DICT_ENTRY_WAIT_FREE;
+
+    }
+    else if ( DICT_ENTRY_CREAT_CKP == de->state){
+        printf("!ERROR:dictFreeValCkp:%d\n",(int)de->state);
+    }
+    else if (DICT_ENTRY_WAIT_FREE == de->state){
+
+    }
+}
+static void _dictFreeValNormal(dict *d,dictEntry *de)
+{
+    if ( !(d->type->valDestructor))
+        return ;
+    if ( DICT_ENTRY_CUR_0 == de->state || DICT_ENTRY_CUR_1 == de->state){
+
+        d->type->valDestructor(d->privdata, de->v.val[1]);
+    }
+    else if(DICT_ENTRY_EQUAL == de->state || DICT_ENTRY_WAIT_FREE == de->state || DICT_ENTRY_CREAT_CKP == de->state){
+    }
+    else{
+        printf("!ERROR:dictFreeValNormal,%d\n",(int)de->state);
+    }
+    d->type->valDestructor(d->privdata, de->v.val[0]);
+    de->v.val[0] = NULL;
+    de->v.val[1] = NULL;
+    de->state = DICT_ENTRY_EQUAL;
+}
+static void _dictFreeAndSetVal(dict *d,dictEntry *de,void *val)
+{
+    if (DICT_NORMAL == d->state){
+        _dictFreeValNormal(d,de);
+        //set val[0],and val[1] point to val[0]
+        if ((d)->type->valDup)
+            de->v.val[0] = (d)->type->valDup((d)->privdata, val);
+        else
+            de->v.val[0] = val;
+        de->v.val[1] = de->v.val[0];
+        //set state
+        de->state = DICT_ENTRY_EQUAL;
+    }else{
+        unsigned char idx;
+
+        if ( DICT_ENTRY_EQUAL == de->state || DICT_ENTRY_WAIT_FREE == de->state){
+            idx = !d->state;
+        }
+        else if ( DICT_ENTRY_CUR_0 == de->state || DICT_ENTRY_CUR_1 == de->state){
+            idx = de->state;
+        }
+        else if ( DICT_ENTRY_CREAT_CKP == de->state){
+            _dictFreeValNormal(d,de);
+            if ((d)->type->valDup)
+                de->v.val[0] = (d)->type->valDup((d)->privdata, val);
+            else
+                de->v.val[0] = val;
+            de->v.val[1] = de->v.val[0];
+            return ;
+        }
+
+        if ((d)->type->valDup)
+            de->v.val[idx] = (d)->type->valDup((d)->privdata, val);
+        else
+            de->v.val[idx] = val;
+        de->state = idx;
+    }
+}
+static void _dictSetVal(dict *d,dictEntry *de,void *val)
+{
+    if (DICT_NORMAL == d->state){
+
+        //set val[0],and val[1] point to val[0]
+        if ((d)->type->valDup)
+            de->v.val[0] = (d)->type->valDup((d)->privdata, val);
+        else
+            de->v.val[0] = val;
+        de->v.val[1] = de->v.val[0];
+        //set state
+        de->state = DICT_ENTRY_EQUAL;
+    }else{
+        unsigned char idx;
+        if ( DICT_ENTRY_EQUAL == de->state || DICT_ENTRY_WAIT_FREE == de->state){
+            idx = !d->state;
+        }
+        else if ( DICT_ENTRY_CUR_0 == de->state || DICT_ENTRY_CUR_1 == de->state){
+            idx = de->state;
+        }
+        else if ( DICT_ENTRY_CREAT_CKP == de->state){
+
+            if ((d)->type->valDup)
+                de->v.val[0] = (d)->type->valDup((d)->privdata, val);
+            else
+                de->v.val[0] = val;
+            de->v.val[1] = de->v.val[0];
+            return ;
+        }else{
+            printf("!ERROR:_dictSetVal:%d\n",(int)de->state);
+            idx = 0;
+        }
+
+        if ((d)->type->valDup)
+            de->v.val[idx] = (d)->type->valDup((d)->privdata, val);
+        else
+            de->v.val[idx] = val;
+        de->state = idx;
+    }
+}
+static void *_dictGetVal(dictEntry *de)
+{
+    if ( DICT_ENTRY_CREAT_CKP == de->state || DICT_ENTRY_EQUAL == de->state)
+        return de->v.val[0];
+    if ( DICT_ENTRY_CUR_0 == de->state || DICT_ENTRY_CUR_1 == de->state)
+        return de->v.val[de->state];
+    printf("!ERROR:_dictGetVal:%d\n",(int)de->state);
+    return NULL;
+}
+static dictEntry *_dictEntryNew( dict *d)
+{
+    dictEntry *de;
+    de = zmalloc(sizeof(*de));
+    memset(de,0,sizeof(*de));
+    de->access = DICT_ENTRY_CAN_ACCESS;
+    if (DICT_NORMAL == d->state)
+        de->state = DICT_ENTRY_EQUAL;
+    else
+        de->state = DICT_ENTRY_CREAT_CKP;
+    return de;
+}
+static void _dictEntryDel(dict *d,dictEntry *de)
+{
+
+    //del val
+    _dictFreeVal(d,de);
+    if ( DICT_NORMAL == d->state)
+    {
+        dictFreeKey(d,de);
+        zfree(de);
+    }
+}
+/*MK END*/
 /* -------------------------- hash functions -------------------------------- */
 
 /* Thomas Wang's 32 bit Mix Function */
@@ -184,6 +353,10 @@ int _dictInit(dict *d, dictType *type,
     d->privdata = privDataPtr;
     d->rehashidx = -1;
     d->iterators = 0;
+    /*MK ADD*/
+    d->state = DICT_NORMAL;
+    pthread_spin_init(&d->de_spin,PTHREAD_PROCESS_SHARED);
+    /*MK END*/
     return DICT_OK;
 }
 
@@ -324,7 +497,7 @@ int dictAdd(dict *d, void *key, void *val)
     dictEntry *entry = dictAddRaw(d,key);
 
     if (!entry) return DICT_ERR;
-    dictSetVal(d, entry, val);
+    _dictSetVal(d, entry, val);
     return DICT_OK;
 }
 
@@ -358,7 +531,7 @@ dictEntry *dictAddRaw(dict *d, void *key)
 
     /* Allocate the memory and store the new entry */
     ht = dictIsRehashing(d) ? &d->ht[1] : &d->ht[0];
-    entry = zmalloc(sizeof(*entry));
+    entry = _dictEntryNew(d);
     entry->next = ht->table[index];
     ht->table[index] = entry;
     ht->used++;
@@ -374,7 +547,7 @@ dictEntry *dictAddRaw(dict *d, void *key)
  * operation. */
 int dictReplace(dict *d, void *key, void *val)
 {
-    dictEntry *entry, auxentry;
+    dictEntry *entry;
 
     /* Try to add the element. If the key
      * does not exists dictAdd will suceed. */
@@ -387,9 +560,7 @@ int dictReplace(dict *d, void *key, void *val)
      * as the previous one. In this context, think to reference counting,
      * you want to increment (set), and then decrement (free), and not the
      * reverse. */
-    auxentry = *entry;
-    dictSetVal(d, entry, val);
-    dictFreeVal(d, &auxentry);
+    _dictFreeAndSetVal(d, entry, val);
     return 0;
 }
 
@@ -428,10 +599,8 @@ static int dictGenericDelete(dict *d, const void *key, int nofree)
                 else
                     d->ht[table].table[idx] = he->next;
                 if (!nofree) {
-                    dictFreeKey(d, he);
-                    dictFreeVal(d, he);
+                   _dictEntryDel(d,he);
                 }
-                zfree(he);
                 d->ht[table].used--;
                 return DICT_OK;
             }
@@ -464,9 +633,7 @@ int _dictClear(dict *d, dictht *ht, void(callback)(void *)) {
         if ((he = ht->table[i]) == NULL) continue;
         while(he) {
             nextHe = he->next;
-            dictFreeKey(d, he);
-            dictFreeVal(d, he);
-            zfree(he);
+            _dictEntryDel(d,he);
             ht->used--;
             he = nextHe;
         }
@@ -511,7 +678,7 @@ void *dictFetchValue(dict *d, const void *key) {
     dictEntry *he;
 
     he = dictFind(d,key);
-    return he ? dictGetVal(he) : NULL;
+    return he ? _dictGetVal(he) : NULL;
 }
 
 /* A fingerprint is a 64 bit number that represents the state of the dictionary
