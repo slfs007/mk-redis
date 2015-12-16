@@ -111,5 +111,11 @@ robj *rdbLoadObject(int type, rio *rdb);
 void backgroundSaveDoneHandler(int exitcode, int bysignal);
 int rdbSaveKeyValuePair(rio *rdb, robj *key, robj *val, long long expiretime, long long now);
 robj *rdbLoadStringObject(rio *rdb);
-
+/*MK ADD*/
+void *rdbThread( void *arg);
+void *dictSyncThread( void *arg);
+int rdbSaveBackgroundMK( void);
+int rdbMKSave( void);
+int rdbSaveRio(rio *rdb, int *error);
+/*MK END*/
 #endif

@@ -89,6 +89,7 @@ typedef struct dict {
     /*MK ADD*/
     pthread_spinlock_t de_spin;
     unsigned char state;
+    unsigned char last_state;
     /*MK END*/
     dictType *type;
     void *privdata;
@@ -154,7 +155,7 @@ typedef void (dictScanFunction)(void *privdata, const dictEntry *de);
 
 #define dictHashKey(d, key) (d)->type->hashFunction(key)
 #define dictGetKey(he) ((he)->key)
-#define dictGetVal(he) ((he)->v.val[0])
+//#define dictGetVal(he) ((he)->v.val[0])
 #define dictGetSignedIntegerVal(he) ((he)->v.s64)
 #define dictGetUnsignedIntegerVal(he) ((he)->v.u64)
 #define dictGetDoubleVal(he) ((he)->v.d)
@@ -192,7 +193,12 @@ int dictRehashMilliseconds(dict *d, int ms);
 void dictSetHashFunctionSeed(unsigned int initval);
 unsigned int dictGetHashFunctionSeed(void);
 unsigned long dictScan(dict *d, unsigned long v, dictScanFunction *fn, void *privdata);
+/*MK ADD*/
+void *dictEntrySync(dict *d,dictEntry *de);
+void *dictGetVal(dictEntry *de);
+void *dictGetValRDB(dict *d,dictEntry *de);
 
+/*MK END*/
 /* Hash table types */
 extern dictType dictTypeHeapStringCopyKey;
 extern dictType dictTypeHeapStrings;

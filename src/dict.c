@@ -179,7 +179,7 @@ static void _dictSetVal(dict *d,dictEntry *de,void *val)
             idx = !d->state;
         }
         else if ( DICT_ENTRY_CUR_0 == de->state || DICT_ENTRY_CUR_1 == de->state){
-            idx = de->state;
+            idx = !d->state;
         }
         else if ( DICT_ENTRY_CREAT_CKP == de->state){
 
@@ -210,6 +210,48 @@ static void *_dictGetVal(dictEntry *de)
     printf("!ERROR:_dictGetVal:%d\n",(int)de->state);
     return NULL;
 }
+void *dictGetVal(dictEntry *de)
+{
+    return _dictGetVal(de);
+}
+static void _dictEntryHold(dict *d,dictEntry *de)
+{
+    pthread_spin_lock(&d->de_spin);
+    while( DICT_ENTRY_CANNOT_ACCESS == de->access){
+        pthread_spin_unlock(&d->de_spin);
+        usleep(1);
+        pthread_spin_lock(&d->de_spin);
+    }
+    de->access = DICT_ENTRY_CANNOT_ACCESS;
+    pthread_spin_unlock(&d->de_spin);
+}
+static void _dictEntryRelease(dict *d,dictEntry *de)
+{
+    pthread_spin_lock(&d->de_spin);
+    de->access = DICT_ENTRY_CAN_ACCESS;
+    pthread_spin_unlock(&d->de_spin);
+}
+void *dictGetValRDB(dict *d,dictEntry *de)
+{
+    void *val = NULL;
+    // redis is doing checkpoint
+    _dictEntryHold(d,de);
+    //get the val
+    if ( DICT_ENTRY_CUR_0 == de->state || DICT_ENTRY_CUR_1 == de->state){
+        val = de->v.val[d->state];
+    }
+    else if( DICT_ENTRY_EQUAL == de->state){
+        val = de->v.val[0];
+    }
+    else if( DICT_ENTRY_WAIT_FREE == de->state){
+        val = de->v.val[0];
+    }
+    else if( DICT_ENTRY_CREAT_CKP == de->state){
+        val = NULL;
+    }
+    _dictEntryRelease(d,de);
+    return val;
+}
 static dictEntry *_dictEntryNew( dict *d)
 {
     dictEntry *de;
@@ -232,6 +274,22 @@ static void _dictEntryDel(dict *d,dictEntry *de)
         dictFreeKey(d,de);
         zfree(de);
     }
+}
+void *dictEntrySync(dict *d,dictEntry *de)
+{
+    _dictEntryHold(d,de);
+    if (DICT_ENTRY_CUR_0 == de->state || DICT_ENTRY_CUR_1 == de->state){
+        if (de->state == d->state){
+            //sync,free the old val,
+            if( d->type->valDestructor)
+                d->type->valDestructor(d->privdata,de->v.val[!de->state]);
+            //sync the val0 and val1
+            de->v.val[!de->state] = de->v.val[de->state];
+            de->state = DICT_ENTRY_EQUAL;
+        }
+    }
+    _dictEntryRelease(d,de);
+    return NULL;
 }
 /*MK END*/
 /* -------------------------- hash functions -------------------------------- */
@@ -355,6 +413,7 @@ int _dictInit(dict *d, dictType *type,
     d->iterators = 0;
     /*MK ADD*/
     d->state = DICT_NORMAL;
+    d->last_state = DICT_CKP_1;
     pthread_spin_init(&d->de_spin,PTHREAD_PROCESS_SHARED);
     /*MK END*/
     return DICT_OK;

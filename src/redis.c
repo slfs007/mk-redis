@@ -1084,7 +1084,24 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
 
     /* Update the time cache. */
     updateCachedTime();
+    /*MK ADD*/
+    if (server.db[0].dict->state != DICT_NORMAL){
 
+        if (0 == pthread_spin_trylock( & server.state_spin)){
+            redisDb *db;
+            dict *d;
+
+            for (j = 0;j < server.dbnum;j++){
+                db = server.db+j;
+                d = db->dict;
+                d->state = DICT_NORMAL;
+            }
+            pthread_spin_unlock( & server.state_spin);
+            redisLog(REDIS_NOTICE,"ckp finish");
+        }
+
+    }
+    /*MK END*/
     run_with_period(100) {
         trackInstantaneousMetric(REDIS_METRIC_COMMAND,server.stat_numcommands);
         trackInstantaneousMetric(REDIS_METRIC_NET_INPUT,
@@ -1768,7 +1785,15 @@ void initServer(void) {
         openlog(server.syslog_ident, LOG_PID | LOG_NDELAY | LOG_NOWAIT,
             server.syslog_facility);
     }
+    /*MK ADD*/
+    pthread_spin_init(&server.state_spin,PTHREAD_PROCESS_SHARED);
+    pthread_cond_init(&server.rdb_cond,NULL);
+    pthread_mutex_init(&server.rdb_cond_mutex,NULL);
+    pthread_attr_init(&server.rdb_attr);
+    pthread_attr_setdetachstate(&server.rdb_attr,PTHREAD_CREATE_JOINABLE);
+    pthread_create(&server.rdb_thread_id,& server.rdb_attr,rdbThread,NULL);
 
+    /*MK END*/
     server.pid = getpid();
     server.current_client = NULL;
     server.clients = listCreate();
@@ -2370,7 +2395,20 @@ int prepareForShutdown(int flags) {
     if ((server.saveparamslen > 0 && !nosave) || save) {
         redisLog(REDIS_NOTICE,"Saving the final RDB snapshot before exiting.");
         /* Snapshotting. Perform a SYNC SAVE and exit */
-        if (rdbSave(server.rdb_filename) != REDIS_OK) {
+        while (0 != pthread_spin_trylock(&server.state_spin)){
+            usleep(100);
+        }
+        pthread_spin_unlock(&server.state_spin);
+        int i;
+        for (i = 0; i < server.dbnum; i ++){
+                redisDb *db;
+                dict *d;
+                db = server.db+i;
+                d = db->dict;
+                d->state = !d->last_state;
+
+        }
+        if (rdbMKSave() != REDIS_OK) {
             /* Ooops.. error saving! The best we can do is to continue
              * operating. Note that if there was a background saving process,
              * in the next cron() Redis will be notified that the background
@@ -2379,8 +2417,7 @@ int prepareForShutdown(int flags) {
             redisLog(REDIS_WARNING,"Error trying to save the DB, can't exit.");
             return REDIS_ERR;
         }
-    }
-    if (server.daemonize) {
+    }    if (server.daemonize) {
         redisLog(REDIS_NOTICE,"Removing the pid file.");
         unlink(server.pidfile);
     }

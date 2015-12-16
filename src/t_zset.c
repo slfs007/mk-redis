@@ -1330,7 +1330,13 @@ void zaddGenericCommand(redisClient *c, int flags) {
                     redisAssertWithInfo(c,curobj,zslDelete(zs->zsl,curscore,curobj));
                     znode = zslInsert(zs->zsl,score,curobj);
                     incrRefCount(curobj); /* Re-inserted in skiplist. */
-                    dictGetVal(de) = &znode->score; /* Update score ptr. */
+                    /*MK MODIFY ,MAYBY HAVE BUG */
+                    void *val;
+                    val = dictGetVal(de);
+                    val = &znode->score; /* Update score ptr. */
+                    de->v.val[0] = val;
+                    de->v.val[1] = val;
+                    /*MK END*/
                     server.dirty++;
                     updated++;
                 }

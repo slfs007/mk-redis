@@ -47,7 +47,7 @@
 #include <netinet/in.h>
 #include <lua.h>
 #include <signal.h>
-
+#include <pthread.h>
 typedef long long mstime_t; /* millisecond time type. */
 
 #include "ae.h"      /* Event driven programming library */
@@ -665,6 +665,13 @@ struct clusterState;
 #endif
 
 struct redisServer {
+    /*MK ADD*/
+    pthread_spinlock_t state_spin;
+    pthread_cond_t rdb_cond;
+    pthread_mutex_t rdb_cond_mutex;
+    pthread_t rdb_thread_id;
+    pthread_attr_t rdb_attr;
+    /*MK END*/
     /* General */
     pid_t pid;                  /* Main process pid. */
     char *configfile;           /* Absolute config file path, or NULL */
