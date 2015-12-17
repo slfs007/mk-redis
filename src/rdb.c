@@ -49,20 +49,22 @@ void *dictSyncThread( void *arg)
 {
     dictIterator *di = NULL;
     dictEntry *de;
+    redisDb *db;
+    dict *d;
     int j;
 
     for (j = 0; j < server.dbnum; j++) {
-        redisDb *db = server.db+j;
-        dict *d = db->dict;
+        db = server.db + j;
+        d = db->dict;
         if (dictSize(d) == 0) continue;
         di = dictGetSafeIterator(d);
         if (!di) return REDIS_ERR;
 
         /* Iterate this DB writing every entry */
         while((de = dictNext(di)) != NULL) {
+
             dictEntrySync(d,de);
         }
-        dictReleaseIterator(di);
     }
     pthread_exit(NULL);
 }

@@ -50,6 +50,7 @@
 #define DICT_ENTRY_EQUAL        2
 #define DICT_ENTRY_WAIT_FREE    4
 #define DICT_ENTRY_CREAT_CKP    5
+
 #define DICT_ENTRY_CAN_ACCESS       1
 #define DICT_ENTRY_CANNOT_ACCESS    0
 typedef struct dictEntry {
@@ -194,7 +195,7 @@ void dictSetHashFunctionSeed(unsigned int initval);
 unsigned int dictGetHashFunctionSeed(void);
 unsigned long dictScan(dict *d, unsigned long v, dictScanFunction *fn, void *privdata);
 /*MK ADD*/
-void *dictEntrySync(dict *d,dictEntry *de);
+void dictEntrySync(dict *d,dictEntry *de);
 void *dictGetVal(dictEntry *de);
 void *dictGetValRDB(dict *d,dictEntry *de);
 

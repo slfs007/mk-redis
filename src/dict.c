@@ -94,9 +94,11 @@ static void _dictFreeValNormal(dict *d,dictEntry *de)
     if ( DICT_ENTRY_CUR_0 == de->state || DICT_ENTRY_CUR_1 == de->state){
 
         d->type->valDestructor(d->privdata, de->v.val[1]);
+        de->v.val[1] = NULL;
     }
-
+    //EQUAL,WAIT,C_CKP
     d->type->valDestructor(d->privdata, de->v.val[0]);
+    de->v.val[0] = NULL;
     de->state = DICT_ENTRY_EQUAL;
 }
 static void _dictFreeValCkp(dict *d,dictEntry *de)
@@ -122,89 +124,76 @@ static void _dictFreeValCkp(dict *d,dictEntry *de)
         de->v.val[1] = NULL;
     }
     else if (DICT_ENTRY_WAIT_FREE == de->state){
-
+        printf("!ERROR:dfvc,wait\n");
     }
 }
 static void _dictFreeAndSetVal(dict *d,dictEntry *de,void *val)
 {
     if (DICT_NORMAL == d->state){
         _dictFreeValNormal(d,de);
-        //set val[0],and val[1] point to val[0]
+
         if ((d)->type->valDup)
             de->v.val[0] = (d)->type->valDup((d)->privdata, val);
         else
             de->v.val[0] = val;
         de->v.val[1] = de->v.val[0];
-        //set state
-        de->state = DICT_ENTRY_EQUAL;
-    }else{
-        unsigned char idx;
-        _dictEntryHoldFast(d,de);
-        _dictFreeValCkp(d,de);
-        if ( DICT_ENTRY_EQUAL == de->state || DICT_ENTRY_WAIT_FREE == de->state){
-            idx = !d->state;
-        }
-        else if ( DICT_ENTRY_CUR_0 == de->state || DICT_ENTRY_CUR_1 == de->state){
-            printf("!ERROR:free and set CUR");
-        }
-        else if ( DICT_ENTRY_CREAT_CKP == de->state){
-            assert(de->v.val[0] == de->v.val[1] && de->v.val[0] == NULL);
 
+        assert(de->state == DICT_ENTRY_EQUAL);
+    }else{
+
+        unsigned char idx;
+        _dictEntryHold(d,de);
+
+        _dictFreeValCkp(d,de);
+        assert(de->state == DICT_ENTRY_WAIT_FREE || de->state == DICT_ENTRY_CREAT_CKP);
+        if ( DICT_ENTRY_WAIT_FREE == de->state){
+
+            assert(de->v.val[0]!= NULL && de->v.val[0] == de->v.val[1]);
+            idx = !d->state;
+            if ((d)->type->valDup)
+                de->v.val[idx] = (d)->type->valDup((d)->privdata, val);
+            else
+                de->v.val[idx] = val;
+            de->state = idx;//DICT_ENTRY_CUR_O or 1
+            _dictEntryRelease(d,de);
+        }
+        else{
+            //CKP
+            _dictEntryRelease(d,de);
+            assert(de->v.val[0] == de->v.val[1] && de->v.val[0] == NULL);
             if ((d)->type->valDup)
                 de->v.val[0] = (d)->type->valDup((d)->privdata, val);
             else
                 de->v.val[0] = val;
             de->v.val[1] = de->v.val[0];
-            _dictEntryRelease(d,de);
-            return ;
+            assert(DICT_ENTRY_CREAT_CKP == de->state);
         }
 
-        if ((d)->type->valDup)
-            de->v.val[idx] = (d)->type->valDup((d)->privdata, val);
-        else
-            de->v.val[idx] = val;
-        de->state = idx;
-        _dictEntryRelease(d,de);
+
     }
 }
 static void _dictSetVal(dict *d,dictEntry *de,void *val)
 {
+    assert(de->v.val[0] == NULL && de->v.val[1] == NULL);
+
     if (DICT_NORMAL == d->state){
 
-        //set val[0],and val[1] point to val[0]
+        assert(de->state == DICT_ENTRY_EQUAL);
         if ((d)->type->valDup)
             de->v.val[0] = (d)->type->valDup((d)->privdata, val);
         else
             de->v.val[0] = val;
+
         de->v.val[1] = de->v.val[0];
-        //set state
-        de->state = DICT_ENTRY_EQUAL;
     }else{
-        unsigned char idx;
-        if ( DICT_ENTRY_EQUAL == de->state || DICT_ENTRY_WAIT_FREE == de->state){
-            idx = !d->state;
-        }
-        else if ( DICT_ENTRY_CUR_0 == de->state || DICT_ENTRY_CUR_1 == de->state){
-            idx = !d->state;
-        }
-        else if ( DICT_ENTRY_CREAT_CKP == de->state){
 
-            if ((d)->type->valDup)
-                de->v.val[0] = (d)->type->valDup((d)->privdata, val);
-            else
-                de->v.val[0] = val;
-            de->v.val[1] = de->v.val[0];
-            return ;
-        }else{
-            printf("!ERROR:_dictSetVal:%d\n",(int)de->state);
-            idx = 0;
-        }
-
+        assert(de->state == DICT_ENTRY_CREAT_CKP);
         if ((d)->type->valDup)
-            de->v.val[idx] = (d)->type->valDup((d)->privdata, val);
+            de->v.val[0] = (d)->type->valDup((d)->privdata, val);
         else
-            de->v.val[idx] = val;
-        de->state = idx;
+            de->v.val[0] = val;
+
+        de->v.val[1] = de->v.val[0];
     }
 }
 static void *_dictGetVal(dictEntry *de)
@@ -213,24 +202,13 @@ static void *_dictGetVal(dictEntry *de)
         return de->v.val[0];
     if ( DICT_ENTRY_CUR_0 == de->state || DICT_ENTRY_CUR_1 == de->state)
         return de->v.val[de->state];
-    printf("!ERROR:_dictGetVal:%d\n",(int)de->state);
     return NULL;
 }
 void *dictGetVal(dictEntry *de)
 {
     return _dictGetVal(de);
 }
-static void _dictEntryHoldFast(dict *d,dictEntry *de)
-{
-    pthread_spin_lock(&d->de_spin);
-    while( DICT_ENTRY_CANNOT_ACCESS == de->access){
-        pthread_spin_unlock(&d->de_spin);
-        pthread_spin_lock(&d->de_spin);
-    }
-    de->access = DICT_ENTRY_CANNOT_ACCESS;
-    pthread_spin_unlock(&d->de_spin);
 
-}
 static void _dictEntryHold(dict *d,dictEntry *de)
 {
     pthread_spin_lock(&d->de_spin);
@@ -244,27 +222,38 @@ static void _dictEntryHold(dict *d,dictEntry *de)
 }
 static void _dictEntryRelease(dict *d,dictEntry *de)
 {
+
     pthread_spin_lock(&d->de_spin);
+    assert(de->access == DICT_ENTRY_CANNOT_ACCESS);
     de->access = DICT_ENTRY_CAN_ACCESS;
     pthread_spin_unlock(&d->de_spin);
 }
 void *dictGetValRDB(dict *d,dictEntry *de)
 {
     void *val = NULL;
-    // redis is doing checkpoint
+
+    assert(d->state != DICT_NORMAL);
     _dictEntryHold(d,de);
-    //get the val
+
     if ( DICT_ENTRY_CUR_0 == de->state || DICT_ENTRY_CUR_1 == de->state){
+
         val = de->v.val[d->state];
+        //modity the de->v.val[!d->state] ant the state,need hold.
+
+        if ( de->state == d->state){
+            //sync
+            if (d->type->valDestructor)
+                d->type->valDestructor(d->privdata,de->v.val[!d->state]);
+            de->v.val[!d->state] = de->v.val[d->state];
+            de->state = DICT_ENTRY_EQUAL;
+        }
+
     }
     else if( DICT_ENTRY_EQUAL == de->state){
-        val = de->v.val[0];
+        val = de->v.val[d->state];
     }
     else if( DICT_ENTRY_WAIT_FREE == de->state){
-        val = de->v.val[0];
-    }
-    else if( DICT_ENTRY_CREAT_CKP == de->state){
-        val = NULL;
+        val = de->v.val[d->state];
     }
     _dictEntryRelease(d,de);
     return val;
@@ -274,7 +263,7 @@ static dictEntry *_dictEntryNew( dict *d)
     dictEntry *de;
     de = zmalloc(sizeof(*de));
     memset(de,0,sizeof(*de));
-    de->access = DICT_ENTRY_CAN_ACCESS;
+    de->access = DICT_ENTRY_CANNOT_ACCESS;
     if (DICT_NORMAL == d->state)
         de->state = DICT_ENTRY_EQUAL;
     else
@@ -292,21 +281,23 @@ static void _dictEntryDel(dict *d,dictEntry *de)
         zfree(de);
     }
 }
-void *dictEntrySync(dict *d,dictEntry *de)
+void dictEntrySync(dict *d,dictEntry *de)
 {
+    assert(d->state != DICT_NORMAL);
+
     _dictEntryHold(d,de);
-    if (DICT_ENTRY_CUR_0 == de->state || DICT_ENTRY_CUR_1 == de->state){
-        if (de->state == d->state){
-            //sync,free the old val,
-            if( d->type->valDestructor)
-                d->type->valDestructor(d->privdata,de->v.val[!de->state]);
-            //sync the val0 and val1
-            de->v.val[!de->state] = de->v.val[de->state];
-            de->state = DICT_ENTRY_EQUAL;
-        }
+
+    if (de->state == d->state){
+        //sync,free the old val,
+        if( d->type->valDestructor)
+            d->type->valDestructor(d->privdata,de->v.val[!de->state]);
+        //sync the val0 and val1
+        de->v.val[!de->state] = de->v.val[de->state];
+        de->state = DICT_ENTRY_EQUAL;
     }
+
     _dictEntryRelease(d,de);
-    return NULL;
+
 }
 /*MK END*/
 /* -------------------------- hash functions -------------------------------- */
@@ -568,14 +559,41 @@ static void _dictRehashStep(dict *d) {
 }
 
 /* Add an element to the target hash table */
+/*MK MODIFY:It's not safe in multi thread.*/
 int dictAdd(dict *d, void *key, void *val)
 {
-    dictEntry *entry = dictAddRaw(d,key);
+/*    dictEntry *entry = dictAddRaw(d,key);
 
     if (!entry) return DICT_ERR;
 
     _dictSetVal(d, entry, val);
     return DICT_OK;
+*/
+    int index;
+    dictEntry *entry;
+    dictht *ht;
+
+    if (dictIsRehashing(d)) _dictRehashStep(d);
+
+    /* Get the index of the new element, or -1 if
+     * the element already exists. */
+    if ((index = _dictKeyIndex(d, key)) == -1)
+        return DICT_ERR;
+
+    /* Allocate the memory and store the new entry */
+    ht = dictIsRehashing(d) ? &d->ht[1] : &d->ht[0];
+    entry = _dictEntryNew(d);
+    dictSetKey(d, entry, key);
+    _dictSetVal(d,entry,val);
+    entry->access = DICT_ENTRY_CAN_ACCESS;
+    entry->next = ht->table[index];
+    ht->table[index] = entry;
+    ht->used++;
+
+    /* Set the hash entry fields. */
+
+    return DICT_OK;
+
 }
 
 /* Low level add. This function adds the entry but instead of setting
@@ -632,6 +650,7 @@ int dictReplace(dict *d, void *key, void *val)
     if (dictAdd(d, key, val) == DICT_OK)
         return 1;
     /* It already exists, get the entry */
+
     entry = dictFind(d, key);
     /* Set the new value and free the old one. Note that it is important
      * to do that in this order, as the value may just be exactly the same
