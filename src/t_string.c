@@ -64,7 +64,6 @@ static int checkStringLength(redisClient *c, long long size) {
 
 void setGenericCommand(redisClient *c, int flags, robj *key, robj *val, robj *expire, int unit, robj *ok_reply, robj *abort_reply) {
     long long milliseconds = 0; /* initialized to avoid any harmness warning */
-
     if (expire) {
         if (getLongLongFromObjectOrReply(c, expire, &milliseconds, NULL) != REDIS_OK)
             return;
@@ -122,7 +121,6 @@ void setCommand(redisClient *c) {
             return;
         }
     }
-
     c->argv[2] = tryObjectEncoding(c->argv[2]);
     setGenericCommand(c,flags,c->argv[1],c->argv[2],expire,unit,NULL,NULL);
 }
