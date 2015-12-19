@@ -45,34 +45,11 @@ static int rdbWriteRaw(rio *rdb, void *p, size_t len) {
         return -1;
     return len;
 }
-void *dictSyncThread( void *arg)
-{
-    dictIterator *di = NULL;
-    dictEntry *de;
-    redisDb *db;
-    dict *d;
-    int j;
-
-    for (j = 0; j < server.dbnum; j++) {
-        db = server.db + j;
-        d = db->dict;
-        if (dictSize(d) == 0) continue;
-        di = dictGetSafeIterator(d);
-        if (!di) return REDIS_ERR;
-
-        /* Iterate this DB writing every entry */
-        while((de = dictNext(di)) != NULL) {
-
-            dictEntrySync(d,de);
-        }
-    }
-    pthread_exit(NULL);
-}
 
 void *rdbThread( void *arg)
 {
     int old_type;
-    pthread_t dict_sync_id;
+
 
     redisLog(REDIS_NOTICE,"rdbThread start...");
     pthread_setcancelstate(PTHREAD_CANCEL_ENABLE,&old_type);
@@ -82,14 +59,12 @@ void *rdbThread( void *arg)
         pthread_mutex_unlock(&server.rdb_cond_mutex);
         pthread_spin_lock(&server.state_spin);
         //
-        pthread_create(&dict_sync_id,&server.rdb_attr,dictSyncThread,NULL);
         if ( rdbMKSave() != REDIS_OK){
             redisLog(REDIS_WARNING,"rdbMKSave fail!");
         }
         else{
             redisLog(REDIS_WARNING,"rdbMKSave success!");
         }
-        pthread_join(dict_sync_id,NULL);
         //clear the de which the state is DICT_wait_free,haven't finish.
         pthread_spin_unlock(&server.state_spin);
     }
@@ -782,9 +757,9 @@ int rdbSaveRio(rio *rdb, int *error) {
             initStaticStringObject(key,keystr);
             expire = getExpire(db,&key);
             if (o){
-
                 if (rdbSaveKeyValuePair(rdb,&key,o,expire,now) == -1) goto werr;
             }
+            dictEntrySync(d,de);
 
         }
         dictReleaseIterator(di);
@@ -1616,7 +1591,27 @@ void saveCommand(redisClient *c) {
         addReplyError(c,"Background save already in progress");
         return;
     }
+    int i;
+    redisDb *db;
+    dict *d;
+    for (i = 0;i < server.dbnum; i ++){
+        for(i = 0; i < server.dbnum; i++){
+            db = server.db+i;
+            d = db->dict;
+
+            d->state = !d->last_state;
+            d->last_state = d->state;
+        }
+    }
     if (rdbSave(server.rdb_filename) == REDIS_OK) {
+        for (i = 0;i < server.dbnum; i ++){
+            for(i = 0; i < server.dbnum; i++){
+                db = server.db+i;
+                d = db->dict;
+
+                d->state = DICT_NORMAL;
+            }
+        }
         addReply(c,shared.ok);
     } else {
         addReply(c,shared.err);

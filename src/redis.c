@@ -1181,26 +1181,28 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
 
     /* If there is not a background saving/rewrite in progress check if
      * we have to save/rewrite now */
-     for (j = 0; j < server.saveparamslen; j++) {
-        struct saveparam *sp = server.saveparams+j;
+    if (server.db[0].dict->state == DICT_NORMAL)
+    {
+        for (j = 0; j < server.saveparamslen; j++) {
+            struct saveparam *sp = server.saveparams+j;
 
-        /* Save if we reached the given amount of changes,
-         * the given amount of seconds, and if the latest bgsave was
-         * successful or if, in case of an error, at least
-         * REDIS_BGSAVE_RETRY_DELAY seconds already elapsed. */
-        if (server.dirty >= sp->changes &&
-            server.unixtime-server.lastsave > sp->seconds &&
-            (server.unixtime-server.lastbgsave_try >
-             REDIS_BGSAVE_RETRY_DELAY ||
-             server.lastbgsave_status == REDIS_OK))
-        {
-            redisLog(REDIS_NOTICE,"%d changes in %d seconds. Saving...",
-                sp->changes, (int)sp->seconds);
-            rdbSaveBackground(server.rdb_filename);
-            break;
+            /* Save if we reached the given amount of changes,
+             * the given amount of seconds, and if the latest bgsave was
+             * successful or if, in case of an error, at least
+             * REDIS_BGSAVE_RETRY_DELAY seconds already elapsed. */
+            if (server.dirty >= sp->changes &&
+                server.unixtime-server.lastsave > sp->seconds &&
+                (server.unixtime-server.lastbgsave_try >
+                 REDIS_BGSAVE_RETRY_DELAY ||
+                 server.lastbgsave_status == REDIS_OK))
+            {
+                redisLog(REDIS_NOTICE,"%d changes in %d seconds. Saving...",
+                    sp->changes, (int)sp->seconds);
+                rdbSaveBackground(server.rdb_filename);
+                break;
+            }
         }
-     }
-
+    }
  /* Trigger an AOF rewrite if needed */
      if (server.rdb_child_pid == -1 &&
          server.aof_child_pid == -1 &&

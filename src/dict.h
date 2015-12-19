@@ -51,11 +51,15 @@
 #define DICT_ENTRY_WAIT_FREE    4
 #define DICT_ENTRY_CREAT_CKP    5
 
+
+#define DICT_ENTRY_RDB_UNSAVE   2
+
 #define DICT_ENTRY_CAN_ACCESS       1
 #define DICT_ENTRY_CANNOT_ACCESS    0
 typedef struct dictEntry {
     void *key;
     unsigned char state;
+    unsigned char rdb_flag;
     unsigned char access;
     union {
         void *val[2];

@@ -37,19 +37,14 @@
 /* Check the length of a number of objects to see if we need to convert a
  * ziplist to a real hash. Note that we only check string encoded objects
  * as their string length can be queried in constant time. */
+/*MK MODIFY*/
 void hashTypeTryConversion(robj *o, robj **argv, int start, int end) {
-    int i;
+
 
     if (o->encoding != REDIS_ENCODING_ZIPLIST) return;
 
-    for (i = start; i <= end; i++) {
-        if (sdsEncodedObject(argv[i]) &&
-            sdslen(argv[i]->ptr) > server.hash_max_ziplist_value)
-        {
-            hashTypeConvert(o, REDIS_ENCODING_HT);
-            break;
-        }
-    }
+    hashTypeConvert(o, REDIS_ENCODING_HT);
+
 }
 
 /* Encode given objects in-place when the hash uses a dict. */
