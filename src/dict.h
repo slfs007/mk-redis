@@ -49,7 +49,8 @@
 #define DICT_ENTRY_CUR_1        1
 #define DICT_ENTRY_EQUAL        2
 #define DICT_ENTRY_WAIT_FREE    4
-#define DICT_ENTRY_CREAT_CKP    5
+/*never use*/
+//#define DICT_ENTRY_CREAT_CKP    5
 
 
 #define DICT_ENTRY_RDB_UNSAVE   2

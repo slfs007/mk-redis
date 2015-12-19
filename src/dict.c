@@ -107,27 +107,30 @@ static  void _dictFreeValNormal(dict *d,dictEntry *de)
 static void _dictFreeValCkp(dict *d,dictEntry *de)
 {
 
-    if ( DICT_ENTRY_EQUAL == de->state){
+    if (de->rdb_flag != d->state)
+    {
+        if ( DICT_ENTRY_CUR_0 == de->state || DICT_ENTRY_CUR_1 == de->state){
+            unsigned char idx;
+            idx = !d->state;
+            if (d->type->valDestructor)
+                d->type->valDestructor(d->privdata,de->v.val[idx]);
+            de->v.val[idx] = de->v.val[!idx];
+        }
         de->state = DICT_ENTRY_WAIT_FREE;
-    }
-    else if ( DICT_ENTRY_CUR_0 == de->state || DICT_ENTRY_CUR_1 == de->state){
-        unsigned char idx;
-        idx = !d->state;
-        if (d->type->valDestructor)
-            d->type->valDestructor(d->privdata,de->v.val[idx]);
-        de->v.val[idx] = de->v.val[!idx];
-        de->state = DICT_ENTRY_WAIT_FREE;
-    }
-    else if ( DICT_ENTRY_CREAT_CKP == de->state){
+    }else{
+        //like free in normal
 
-        assert(de->v.val[0] == de->v.val[1]);
+        if ( DICT_ENTRY_CUR_0 == de->state || DICT_ENTRY_CUR_1 == de->state){
+            if (d->type->valDestructor)
+                d->type->valDestructor(d->privdata, de->v.val[1]);
+
+        }
+        //EQUAL,WAIT,C_CKP
         if (d->type->valDestructor)
-            d->type->valDestructor(d->privdata,de->v.val[0]);
+            d->type->valDestructor(d->privdata, de->v.val[0]);
         de->v.val[0] = NULL;
         de->v.val[1] = NULL;
-    }
-    else if (DICT_ENTRY_WAIT_FREE == de->state){
-        printf("!ERROR:dfvc,wait\n");
+        de->state = DICT_ENTRY_EQUAL;
     }
 }
 static void _dictFreeAndSetVal(dict *d,dictEntry *de,void *val)
@@ -148,7 +151,7 @@ static void _dictFreeAndSetVal(dict *d,dictEntry *de,void *val)
         _dictEntryHoldFast(d,de);
 
         _dictFreeValCkp(d,de);
-        assert(de->state == DICT_ENTRY_WAIT_FREE || de->state == DICT_ENTRY_CREAT_CKP);
+        assert(de->state == DICT_ENTRY_WAIT_FREE || de->state == DICT_ENTRY_EQUAL);
         if ( DICT_ENTRY_WAIT_FREE == de->state){
 
             assert(de->v.val[0]!= NULL && de->v.val[0] == de->v.val[1]);
@@ -161,7 +164,7 @@ static void _dictFreeAndSetVal(dict *d,dictEntry *de,void *val)
             _dictEntryRelease(d,de);
         }
         else{
-            //CKP
+            //RDB HAS ALREADY VISIT
             _dictEntryRelease(d,de);
             assert(de->v.val[0] == de->v.val[1] && de->v.val[0] == NULL);
             if ((d)->type->valDup)
@@ -169,7 +172,7 @@ static void _dictFreeAndSetVal(dict *d,dictEntry *de,void *val)
             else
                 de->v.val[0] = val;
             de->v.val[1] = de->v.val[0];
-            assert(DICT_ENTRY_CREAT_CKP == de->state);
+            assert(DICT_ENTRY_EQUAL == de->state);
         }
 
 
@@ -177,35 +180,21 @@ static void _dictFreeAndSetVal(dict *d,dictEntry *de,void *val)
 }
 static  void _dictSetVal(dict *d,dictEntry *de,void *val)
 {
-
-
-    if (DICT_NORMAL == d->state){
-
-        assert(de->state == DICT_ENTRY_EQUAL);
-        if ((d)->type->valDup)
+    assert(de->rdb_flag == DICT_ENTRY_RDB_UNSAVE);
+    if ((d)->type->valDup)
             de->v.val[0] = (d)->type->valDup((d)->privdata, val);
         else
             de->v.val[0] = val;
 
-        de->v.val[1] = de->v.val[0];
-    }else{
-
-        assert(de->state == DICT_ENTRY_CREAT_CKP);
-        if ((d)->type->valDup)
-            de->v.val[0] = (d)->type->valDup((d)->privdata, val);
-        else
-            de->v.val[0] = val;
-
-        de->v.val[1] = de->v.val[0];
-    }
+    de->v.val[1] = de->v.val[0];
 }
 static  void *_dictGetVal(dictEntry *de)
 {
-    if ( DICT_ENTRY_CREAT_CKP == de->state || DICT_ENTRY_EQUAL == de->state)
+    if ( DICT_ENTRY_EQUAL == de->state)
         return de->v.val[0];
     if ( DICT_ENTRY_CUR_0 == de->state || DICT_ENTRY_CUR_1 == de->state)
         return de->v.val[de->state];
-    return NULL;
+    return NULL;//de's state is wait
 }
 void *dictGetVal(dictEntry *de)
 {
@@ -247,11 +236,7 @@ void *dictGetValRDB(dict *d,dictEntry *de)
 
     assert(d->state != DICT_NORMAL);
     _dictEntryHold(d,de);
-
-    if ( de->state != DICT_ENTRY_CREAT_CKP){
-        val = de->v.val[d->state];
-    }
-
+    val = de->v.val[d->state];
     _dictEntryRelease(d,de);
     return val;
 }
@@ -261,11 +246,8 @@ static  dictEntry *_dictEntryNew( dict *d)
     de = zmalloc(sizeof(*de));
 
     de->access = DICT_ENTRY_CANNOT_ACCESS;
-    if (DICT_NORMAL == d->state)
-        de->state = DICT_ENTRY_EQUAL;
-    else
-        de->state = DICT_ENTRY_CREAT_CKP;
-    de->rdb_flag = DICT_ENTRY_RDB_UNSAVE;
+    de->state = DICT_ENTRY_EQUAL;
+    de->rdb_flag = d->state;
     return de;
 }
 static  void _dictEntryDel(dict *d,dictEntry *de)
