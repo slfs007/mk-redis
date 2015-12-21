@@ -273,7 +273,7 @@ void dictEntrySync(dict *d,dictEntry *de)
     _dictEntryHold(d,de);
     if (d->state == de->state){
         //already sync this de.skip
-        assert(de->state != DICT_ENTRY_CUR_0 && de->state != DICT_ENTRY_CUR_1);
+        assert(de->state == DICT_ENTRY_EMPTY && de->state == DICT_ENTRY_EQUAL);
         _dictEntryRelease(d,de);
         return ;
     }
@@ -288,7 +288,7 @@ void dictEntrySync(dict *d,dictEntry *de)
         de->state = DICT_ENTRY_EQUAL;
 
     }else if ( de->state == DICT_ENTRY_WAIT_FREE){
-        if( d->type->valDestructor && de->v.val[0] != NULL)
+        if( d->type->valDestructor)
             d->type->valDestructor(d->privdata,de->v.val[0]);
         de->v.val[0] = NULL;
         de->v.val[1] = NULL;
