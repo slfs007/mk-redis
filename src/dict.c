@@ -269,6 +269,7 @@ void dictEntrySync(dict *d,dictEntry *de)
 {
     assert(de != NULL);
     assert(d->state != DICT_NORMAL);
+    printf("sync,%s,%d,%d\n",de->key,de->state,de->rdb_flag);
 
     _dictEntryHold(d,de);
     if (d->state == de->state){
@@ -278,7 +279,7 @@ void dictEntrySync(dict *d,dictEntry *de)
         return ;
     }
     de->rdb_flag = d->state;// visited.
-
+    printf("visited\n");
     if (de->state == DICT_ENTRY_CUR_0 || de->state == DICT_ENTRY_CUR_1){
         //sync,free the old val,
         if( d->type->valDestructor)

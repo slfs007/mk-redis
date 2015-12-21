@@ -662,7 +662,8 @@ int rdbSaveObject(rio *rdb, robj *o) {
 
             if ((n = rdbSaveLen(rdb,dictSize((dict*)o->ptr))) == -1) return -1;
             nwritten += n;
-
+            //MK ADD:update the state
+            ((dict *)o->ptr)->state = server.db[0].dict->state;
             while((de = dictNext(di)) != NULL) {
                 robj *key = dictGetKey(de);
                 robj *val = dictGetVal(de);
@@ -671,8 +672,13 @@ int rdbSaveObject(rio *rdb, robj *o) {
                 nwritten += n;
                 if ((n = rdbSaveStringObject(rdb,val)) == -1) return -1;
                 nwritten += n;
+                //MK ADD:sync de
+                dictEntrySync(o->ptr,de);
             }
             dictReleaseIterator(di);
+            //MK ADD:reset to normal.
+            ((dict *)o->ptr)->last_state = ((dict *)o->ptr)->state;
+            ((dict *)o->ptr)->state = DICT_NORMAL;
 
         } else {
             redisPanic("Unknown hash encoding");

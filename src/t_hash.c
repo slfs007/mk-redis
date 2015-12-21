@@ -392,12 +392,21 @@ robj *hashTypeLookupWriteOrCreate(redisClient *c, robj *key) {
     robj *o = lookupKeyWrite(c->db,key);
     if (o == NULL) {
         o = createHashObject();
+        //MK add:convert ziplist to hash
+        hashTypeConvert(o, REDIS_ENCODING_HT);
         dbAdd(c->db,key,o);
     } else {
         if (o->type != REDIS_HASH) {
             addReply(c,shared.wrongtypeerr);
             return NULL;
         }
+    }
+    // MK add: if need to modify the state
+    if ( c->db->dict->state != DICT_NORMAL){
+        if ( ((dict *)o->ptr)->last_state != c->db->dict->state){
+            ((dict *)o->ptr)->state = c->db->dict->state;
+        }
+        // if last_state equal state,it means rdbThread has save the hash table.
     }
     return o;
 }
