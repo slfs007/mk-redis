@@ -58,7 +58,7 @@ void *rdbThread( void *arg)
         pthread_cond_wait(&server.rdb_cond,&server.rdb_cond_mutex);
         pthread_mutex_unlock(&server.rdb_cond_mutex);
         pthread_spin_lock(&server.state_spin);
-        //
+
         if ( rdbMKSave() != REDIS_OK){
             redisLog(REDIS_WARNING,"rdbMKSave fail!");
         }
@@ -116,7 +116,7 @@ int rdbSaveBackgroundMK( void)
 {
     int i;
     //MK prepare
-    if ( server.db[0].dict->state == DICT_NORMAL)
+    if ( 0 == pthread_spin_trylock(&server.state_spin))
     {
         redisDb *db;
         dict *d;
@@ -127,9 +127,10 @@ int rdbSaveBackgroundMK( void)
             d = db->dict;
 
             d->state = !d->last_state;
-            d->last_state = d->state;
+            redisAssert(server.db[i].dict->state != DICT_NORMAL);
         }
         redisLog(REDIS_WARNING,"redis cur: %d",(int)d->state);
+        pthread_spin_unlock(&server.state_spin);
         pthread_cond_broadcast(& server.rdb_cond);
         pthread_mutex_unlock(&server.rdb_cond_mutex);
     }
@@ -622,6 +623,7 @@ int rdbSaveObject(rio *rdb, robj *o) {
         }
     } else if (o->type == REDIS_ZSET) {
         /* Save a sorted set value */
+
         if (o->encoding == REDIS_ENCODING_ZIPLIST) {
             size_t l = ziplistBlobLen((unsigned char*)o->ptr);
 
@@ -657,28 +659,30 @@ int rdbSaveObject(rio *rdb, robj *o) {
             nwritten += n;
 
         } else if (o->encoding == REDIS_ENCODING_HT) {
+
             dictIterator *di = dictGetIterator(o->ptr);
             dictEntry *de;
-
+            dict *d;
+            d = o->ptr;
             if ((n = rdbSaveLen(rdb,dictSize((dict*)o->ptr))) == -1) return -1;
             nwritten += n;
             //MK ADD:update the state
-            ((dict *)o->ptr)->state = server.db[0].dict->state;
+            d->state = server.db[0].dict->state;
             while((de = dictNext(di)) != NULL) {
                 robj *key = dictGetKey(de);
-                robj *val = dictGetVal(de);
+                robj *val = dictGetValRDB(d,de);
 
                 if ((n = rdbSaveStringObject(rdb,key)) == -1) return -1;
                 nwritten += n;
                 if ((n = rdbSaveStringObject(rdb,val)) == -1) return -1;
                 nwritten += n;
                 //MK ADD:sync de
-                dictEntrySync(o->ptr,de);
+                dictEntrySync(d,de);
             }
             dictReleaseIterator(di);
             //MK ADD:reset to normal.
-            ((dict *)o->ptr)->last_state = ((dict *)o->ptr)->state;
-            ((dict *)o->ptr)->state = DICT_NORMAL;
+            d->last_state = ((dict *)o->ptr)->state;
+            d->state = DICT_NORMAL;
 
         } else {
             redisPanic("Unknown hash encoding");
@@ -763,6 +767,7 @@ int rdbSaveRio(rio *rdb, int *error) {
             initStaticStringObject(key,keystr);
             expire = getExpire(db,&key);
             if (o){
+
                 if (rdbSaveKeyValuePair(rdb,&key,o,expire,now) == -1) goto werr;
             }
             dictEntrySync(d,de);
@@ -1606,7 +1611,7 @@ void saveCommand(redisClient *c) {
             d = db->dict;
 
             d->state = !d->last_state;
-            d->last_state = d->state;
+
         }
     }
     if (rdbSave(server.rdb_filename) == REDIS_OK) {
@@ -1614,7 +1619,7 @@ void saveCommand(redisClient *c) {
             for(i = 0; i < server.dbnum; i++){
                 db = server.db+i;
                 d = db->dict;
-
+                d->last_state = d->state;
                 d->state = DICT_NORMAL;
             }
         }

@@ -1085,22 +1085,22 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
     /* Update the time cache. */
     updateCachedTime();
     /*MK ADD*/
-    if (server.db[0].dict->state != DICT_NORMAL){
-
-        if (0 == pthread_spin_trylock( & server.state_spin)){
-            redisDb *db;
-            dict *d;
-
+    if (0 == pthread_spin_trylock( & server.state_spin)){
+        redisDb *db;
+        dict *d;
+        if (server.db[0].dict->state != DICT_NORMAL )
+        {
             for (j = 0;j < server.dbnum;j++){
                 db = server.db+j;
                 d = db->dict;
+                d->last_state = d->state;
                 d->state = DICT_NORMAL;
             }
-            pthread_spin_unlock( & server.state_spin);
-            redisLog(REDIS_NOTICE,"ckp finish");
         }
-
+        pthread_spin_unlock( & server.state_spin);
     }
+
+
     /*MK END*/
     run_with_period(100) {
         trackInstantaneousMetric(REDIS_METRIC_COMMAND,server.stat_numcommands);
@@ -1181,8 +1181,9 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
 
     /* If there is not a background saving/rewrite in progress check if
      * we have to save/rewrite now */
-    if (server.db[0].dict->state == DICT_NORMAL)
+    if (0 == pthread_spin_trylock(&server.state_spin))
     {
+        pthread_spin_unlock(&server.state_spin);
         for (j = 0; j < server.saveparamslen; j++) {
             struct saveparam *sp = server.saveparams+j;
 
@@ -1198,6 +1199,7 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
             {
                 redisLog(REDIS_NOTICE,"%d changes in %d seconds. Saving...",
                     sp->changes, (int)sp->seconds);
+
                 rdbSaveBackground(server.rdb_filename);
                 break;
             }

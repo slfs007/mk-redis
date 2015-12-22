@@ -160,7 +160,7 @@ static void _dictFreeAndSetVal(dict *d,dictEntry *de,void *val)
             else
                 de->v.val[idx] = val;
             de->state = idx;//DICT_ENTRY_CUR_O or 1
-
+            assert(de->rdb_flag != d->state);
             _dictEntryRelease(d,de);
         }
         else{//EMPTY
@@ -174,6 +174,7 @@ static void _dictFreeAndSetVal(dict *d,dictEntry *de,void *val)
                 de->v.val[0] = val;
             de->v.val[1] = de->v.val[0];
             de->state = DICT_ENTRY_EQUAL;
+            assert(de->rdb_flag == d->state);
         }
 
 
@@ -189,7 +190,7 @@ static  void _dictSetVal(dict *d,dictEntry *de,void *val)
         de->v.val[0] = val;
 
     de->v.val[1] = de->v.val[0];
-    d->state = DICT_ENTRY_EQUAL;
+    de->state = DICT_ENTRY_EQUAL;
 }
 static  void *_dictGetVal(dictEntry *de)
 {
@@ -237,10 +238,11 @@ void *dictGetValRDB(dict *d,dictEntry *de)
 {
     void *val = NULL;
 
-    assert(d->state != DICT_NORMAL);
 
-    val = de->v.val[d->state];
-
+    if ( d->state != DICT_NORMAL)
+        val = de->v.val[d->state];
+    else
+        val = de->v.val[0];
     return val;
 }
 static  dictEntry *_dictEntryNew( dict *d)
@@ -268,18 +270,19 @@ static  void _dictEntryDel(dict *d,dictEntry *de)
 void dictEntrySync(dict *d,dictEntry *de)
 {
     assert(de != NULL);
+
     assert(d->state != DICT_NORMAL);
-    printf("sync,%s,%d,%d\n",de->key,de->state,de->rdb_flag);
 
     _dictEntryHold(d,de);
-    if (d->state == de->state){
+    if (d->state == de->rdb_flag){
         //already sync this de.skip
-        assert(de->state == DICT_ENTRY_EMPTY && de->state == DICT_ENTRY_EQUAL);
-        _dictEntryRelease(d,de);
-        return ;
+        if(de->state == DICT_ENTRY_EMPTY || de->state == DICT_ENTRY_EQUAL)
+        {
+            _dictEntryRelease(d,de);
+            return ;
+        }
     }
     de->rdb_flag = d->state;// visited.
-    printf("visited\n");
     if (de->state == DICT_ENTRY_CUR_0 || de->state == DICT_ENTRY_CUR_1){
         //sync,free the old val,
         if( d->type->valDestructor)
@@ -296,6 +299,7 @@ void dictEntrySync(dict *d,dictEntry *de)
         de->state = DICT_ENTRY_EMPTY;
 
     }
+    assert(de->state == DICT_ENTRY_EMPTY || de->state == DICT_ENTRY_EQUAL);
     _dictEntryRelease(d,de);
 
 }
@@ -562,13 +566,7 @@ static void _dictRehashStep(dict *d) {
 /*MK MODIFY:It's not safe in multi thread.*/
 int dictAdd(dict *d, void *key, void *val)
 {
-/*    dictEntry *entry = dictAddRaw(d,key);
 
-    if (!entry) return DICT_ERR;
-
-    _dictSetVal(d, entry, val);
-    return DICT_OK;
-*/
     int index;
     dictEntry *entry;
     dictht *ht;
@@ -591,7 +589,6 @@ int dictAdd(dict *d, void *key, void *val)
     ht->used++;
 
     /* Set the hash entry fields. */
-
     return DICT_OK;
 
 }
@@ -657,6 +654,7 @@ int dictReplace(dict *d, void *key, void *val)
      * as the previous one. In this context, think to reference counting,
      * you want to increment (set), and then decrement (free), and not the
      * reverse. */
+
     _dictFreeAndSetVal(d, entry, val);
     return 0;
 }
@@ -876,8 +874,9 @@ void dictReleaseIterator(dictIterator *iter)
     if (!(iter->index == -1 && iter->table == 0)) {
         if (iter->safe)
             iter->d->iterators--;
-        else
+       /* else
             assert(iter->fingerprint == dictFingerprint(iter->d));
+    */
     }
     zfree(iter);
 }
