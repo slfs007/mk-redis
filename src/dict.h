@@ -94,7 +94,6 @@ typedef struct dictht {
 #define DICT_CKP_1      1
 typedef struct dict {
     /*MK ADD*/
-    pthread_spinlock_t de_spin;
     unsigned char state;
     unsigned char last_state;
     /*MK END*/
@@ -124,17 +123,7 @@ typedef void (dictScanFunction)(void *privdata, const dictEntry *de);
 #define DICT_HT_INITIAL_SIZE     4
 
 /* ------------------------------- Macros ------------------------------------*/
-/*#define dictFreeVal(d, entry) \
-    if ((d)->type->valDestructor) \
-        (d)->type->valDestructor((d)->privdata, (entry)->v.val)
-*/
-/*#define dictSetVal(d, entry, _val_) do { \
-    if ((d)->type->valDup) \
-        entry->v.val = (d)->type->valDup((d)->privdata, _val_); \
-    else \
-        entry->v.val = (_val_); \
-} while(0)
-*/
+
 #define dictSetSignedIntegerVal(entry, _val_) \
     do { entry->v.s64 = _val_; } while(0)
 
@@ -162,7 +151,7 @@ typedef void (dictScanFunction)(void *privdata, const dictEntry *de);
 
 #define dictHashKey(d, key) (d)->type->hashFunction(key)
 #define dictGetKey(he) ((he)->key)
-//#define dictGetVal(he) ((he)->v.val[0])
+
 #define dictGetSignedIntegerVal(he) ((he)->v.s64)
 #define dictGetUnsignedIntegerVal(he) ((he)->v.u64)
 #define dictGetDoubleVal(he) ((he)->v.d)

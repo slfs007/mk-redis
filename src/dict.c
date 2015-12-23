@@ -76,14 +76,13 @@ static void _dictFreeAndSetVal(dict *d,dictEntry *de,void *val);
 static  void _dictFreeValCkp(dict *d,dictEntry *de);
 static  void _dictEntryHold(dict *d,dictEntry *de);
 static void _dictEntryRelease(dict *d,dictEntry *de);
-static void _dictEntryHoldFast(dict *d,dictEntry *de);
 
 static  void _dictFreeVal(dict *d,dictEntry *de)
 {
     if ( DICT_NORMAL == d->state)
         _dictFreeValNormal(d,de);
     else{
-        _dictEntryHoldFast(d,de);
+        _dictEntryHold(d,de);
         _dictFreeValCkp(d,de);
         _dictEntryRelease(d,de);
     }
@@ -100,9 +99,41 @@ static  void _dictFreeValNormal(dict *d,dictEntry *de)
     de->v.val[1] = NULL;
     de->state = DICT_ENTRY_EMPTY;
 }
+void dictEntrySync(dict *d,dictEntry *de)
+{
+    assert(de != NULL);
+    assert(d->state != DICT_NORMAL);
+    _dictEntryHold(d,de);
+    if (d->state == de->rdb_flag){
+        //already sync this de.skip
+        if(de->state == DICT_ENTRY_EMPTY || de->state == DICT_ENTRY_EQUAL)
+        {
+            _dictEntryRelease(d,de);
+            return ;
+        }
+    }
+    de->rdb_flag = d->state;// visited.
+    if (de->state == DICT_ENTRY_CUR_0 || de->state == DICT_ENTRY_CUR_1){
+        //sync,free the old val,
+        if( d->type->valDestructor)
+            d->type->valDestructor(d->privdata,de->v.val[!de->state]);
+        //sync the val0 and val1
+        de->v.val[!de->state] = de->v.val[de->state];
+        de->state = DICT_ENTRY_EQUAL;
+    }else if ( de->state == DICT_ENTRY_WAIT_FREE){
+        if( d->type->valDestructor)
+            d->type->valDestructor(d->privdata,de->v.val[0]);
+        de->v.val[0] = NULL;
+        de->v.val[1] = NULL;
+        de->state = DICT_ENTRY_EMPTY;
+
+    }
+    assert(de->state == DICT_ENTRY_EMPTY || de->state == DICT_ENTRY_EQUAL);
+    _dictEntryRelease(d,de);
+}
 static void _dictFreeValCkp(dict *d,dictEntry *de)
 {
-    if (DICT_ENTRY_EMPTY == de->state){
+    if (de->state == DICT_ENTRY_EMPTY){
         de->rdb_flag = d->state;
         return;
     }
@@ -123,7 +154,6 @@ static void _dictFreeValCkp(dict *d,dictEntry *de)
             if (d->type->valDestructor)
                 d->type->valDestructor(d->privdata, de->v.val[1]);
         }
-        //EQUAL,WAIT,C_CKP
         if (d->type->valDestructor)
             d->type->valDestructor(d->privdata, de->v.val[0]);
         de->v.val[0] = NULL;
@@ -147,7 +177,7 @@ static void _dictFreeAndSetVal(dict *d,dictEntry *de,void *val)
     }else{
 
         unsigned char idx;
-        _dictEntryHoldFast(d,de);
+        _dictEntryHold(d,de);
 
         _dictFreeValCkp(d,de);
         assert(de->state == DICT_ENTRY_EMPTY || de->state == DICT_ENTRY_WAIT_FREE);
@@ -204,40 +234,23 @@ void *dictGetVal(dictEntry *de)
 {
     return _dictGetVal(de);
 }
-static void _dictEntryHoldFast(dict *d,dictEntry *de)
-{
-    pthread_spin_lock(&d->de_spin);
-    while( DICT_ENTRY_CANNOT_ACCESS == de->access){
-        pthread_spin_unlock(&d->de_spin);
-        pthread_spin_lock(&d->de_spin);
-    }
-    de->access = DICT_ENTRY_CANNOT_ACCESS;
-    pthread_spin_unlock(&d->de_spin);
-}
 static  void _dictEntryHold(dict *d,dictEntry *de)
 {
-    pthread_spin_lock(&d->de_spin);
-    while( DICT_ENTRY_CANNOT_ACCESS == de->access){
-        pthread_spin_unlock(&d->de_spin);
+    unsigned char de_old = DICT_ENTRY_CAN_ACCESS;
+    while( !__atomic_compare_exchange_n(&de->access,&de_old,
+                                     DICT_ENTRY_CANNOT_ACCESS,1,__ATOMIC_SEQ_CST,__ATOMIC_SEQ_CST)){
+        de_old = DICT_ENTRY_CAN_ACCESS;
         usleep(1);
-        pthread_spin_lock(&d->de_spin);
     }
-    de->access = DICT_ENTRY_CANNOT_ACCESS;
-    pthread_spin_unlock(&d->de_spin);
 }
 static  void _dictEntryRelease(dict *d,dictEntry *de)
 {
-
-    pthread_spin_lock(&d->de_spin);
     assert(de->access == DICT_ENTRY_CANNOT_ACCESS);
-    de->access = DICT_ENTRY_CAN_ACCESS;
-    pthread_spin_unlock(&d->de_spin);
+    __atomic_store_n(&de->access,DICT_ENTRY_CAN_ACCESS,__ATOMIC_SEQ_CST);
 }
-
 void *dictGetValRDB(dict *d,dictEntry *de)
 {
     void *val = NULL;
-
 
     if ( d->state != DICT_NORMAL)
         val = de->v.val[d->state];
@@ -258,7 +271,6 @@ static  dictEntry *_dictEntryNew( dict *d)
 }
 static  void _dictEntryDel(dict *d,dictEntry *de)
 {
-
     //del val
     _dictFreeVal(d,de);
     if ( DICT_NORMAL == d->state)
@@ -267,42 +279,7 @@ static  void _dictEntryDel(dict *d,dictEntry *de)
         zfree(de);
     }
 }
-void dictEntrySync(dict *d,dictEntry *de)
-{
-    assert(de != NULL);
 
-    assert(d->state != DICT_NORMAL);
-
-    _dictEntryHold(d,de);
-    if (d->state == de->rdb_flag){
-        //already sync this de.skip
-        if(de->state == DICT_ENTRY_EMPTY || de->state == DICT_ENTRY_EQUAL)
-        {
-            _dictEntryRelease(d,de);
-            return ;
-        }
-    }
-    de->rdb_flag = d->state;// visited.
-    if (de->state == DICT_ENTRY_CUR_0 || de->state == DICT_ENTRY_CUR_1){
-        //sync,free the old val,
-        if( d->type->valDestructor)
-            d->type->valDestructor(d->privdata,de->v.val[!de->state]);
-        //sync the val0 and val1
-        de->v.val[!de->state] = de->v.val[de->state];
-        de->state = DICT_ENTRY_EQUAL;
-
-    }else if ( de->state == DICT_ENTRY_WAIT_FREE){
-        if( d->type->valDestructor)
-            d->type->valDestructor(d->privdata,de->v.val[0]);
-        de->v.val[0] = NULL;
-        de->v.val[1] = NULL;
-        de->state = DICT_ENTRY_EMPTY;
-
-    }
-    assert(de->state == DICT_ENTRY_EMPTY || de->state == DICT_ENTRY_EQUAL);
-    _dictEntryRelease(d,de);
-
-}
 /*MK END*/
 /* -------------------------- hash functions -------------------------------- */
 
@@ -426,7 +403,6 @@ int _dictInit(dict *d, dictType *type,
     /*MK ADD*/
     d->state = DICT_NORMAL;
     d->last_state = DICT_CKP_1;
-    pthread_spin_init(&d->de_spin,PTHREAD_PROCESS_SHARED);
     /*MK END*/
     return DICT_OK;
 }
