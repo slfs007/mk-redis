@@ -57,7 +57,7 @@ void *rdbThread( void *arg)
         pthread_mutex_lock(&server.rdb_cond_mutex);
         pthread_cond_wait(&server.rdb_cond,&server.rdb_cond_mutex);
         pthread_mutex_unlock(&server.rdb_cond_mutex);
-        pthread_spin_lock(&server.state_spin);
+        redisAssert( server.state == SERVER_CKP);
 
         if ( rdbMKSave() != REDIS_OK){
             redisLog(REDIS_WARNING,"rdbMKSave fail!");
@@ -66,7 +66,7 @@ void *rdbThread( void *arg)
             redisLog(REDIS_WARNING,"rdbMKSave success!");
         }
         //clear the de which the state is DICT_wait_free,haven't finish.
-        pthread_spin_unlock(&server.state_spin);
+        __atomic_store_n(&server.state,SERVER_NORMAL,__ATOMIC_SEQ_CST);
     }
     pthread_exit(NULL);
 }
@@ -114,9 +114,12 @@ werr:
 }
 int rdbSaveBackgroundMK( void)
 {
+    unsigned char state_cmp = SERVER_NORMAL;
     int i;
     //MK prepare
-    if ( 0 == pthread_spin_trylock(&server.state_spin))
+    if ( __atomic_compare_exchange_n(&server.state,
+                                     &state_cmp,SERVER_CKP,1,
+                                     __ATOMIC_SEQ_CST,__ATOMIC_SEQ_CST))
     {
         redisDb *db;
         dict *d;
@@ -127,10 +130,9 @@ int rdbSaveBackgroundMK( void)
             d = db->dict;
 
             d->state = !d->last_state;
-            redisAssert(server.db[i].dict->state != DICT_NORMAL);
         }
         redisLog(REDIS_WARNING,"redis cur: %d",(int)d->state);
-        pthread_spin_unlock(&server.state_spin);
+
         pthread_cond_broadcast(& server.rdb_cond);
         pthread_mutex_unlock(&server.rdb_cond_mutex);
     }
@@ -660,14 +662,17 @@ int rdbSaveObject(rio *rdb, robj *o) {
 
         } else if (o->encoding == REDIS_ENCODING_HT) {
 
-            dictIterator *di = dictGetIterator(o->ptr);
+            dictIterator *di;
             dictEntry *de;
             dict *d;
             d = o->ptr;
-            if ((n = rdbSaveLen(rdb,dictSize((dict*)o->ptr))) == -1) return -1;
+            if (d->state == DICT_NORMAL)
+                d->state = server.db[server.dbnum - 1].dict->state;
+
+            if ( (n = rdbSaveLen(rdb,dictSize(d))) == -1) return -1;
             nwritten += n;
             //MK ADD:update the state
-            d->state = server.db[0].dict->state;
+            di = dictGetIterator(d);
             while((de = dictNext(di)) != NULL) {
                 robj *key = dictGetKey(de);
                 robj *val = dictGetValRDB(d,de);
@@ -681,9 +686,8 @@ int rdbSaveObject(rio *rdb, robj *o) {
             }
             dictReleaseIterator(di);
             //MK ADD:reset to normal.
-            d->last_state = ((dict *)o->ptr)->state;
-            d->state = DICT_NORMAL;
-
+            d->last_state = d->state;
+            __atomic_store_n(&d->state,DICT_NORMAL,__ATOMIC_SEQ_CST);
         } else {
             redisPanic("Unknown hash encoding");
         }
@@ -750,7 +754,9 @@ int rdbSaveRio(rio *rdb, int *error) {
     for (j = 0; j < server.dbnum; j++) {
         redisDb *db = server.db+j;
         dict *d = db->dict;
-        if (dictSize(d) == 0) continue;
+        if (dictSize(d) == 0){
+            goto dclear;
+        }
         di = dictGetSafeIterator(d);
         if (!di) return REDIS_ERR;
 
@@ -774,6 +780,9 @@ int rdbSaveRio(rio *rdb, int *error) {
 
         }
         dictReleaseIterator(di);
+dclear:
+        d->last_state = d->state;
+        __atomic_store_n(&d->state,DICT_NORMAL,__ATOMIC_SEQ_CST);
     }
     di = NULL; /* So that we don't release it again on error. */
 

@@ -1084,24 +1084,7 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
 
     /* Update the time cache. */
     updateCachedTime();
-    /*MK ADD*/
-    if (0 == pthread_spin_trylock( & server.state_spin)){
-        redisDb *db;
-        dict *d;
-        if (server.db[0].dict->state != DICT_NORMAL )
-        {
-            for (j = 0;j < server.dbnum;j++){
-                db = server.db+j;
-                d = db->dict;
-                d->last_state = d->state;
-                d->state = DICT_NORMAL;
-            }
-        }
-        pthread_spin_unlock( & server.state_spin);
-    }
 
-
-    /*MK END*/
     run_with_period(100) {
         trackInstantaneousMetric(REDIS_METRIC_COMMAND,server.stat_numcommands);
         trackInstantaneousMetric(REDIS_METRIC_NET_INPUT,
@@ -1181,9 +1164,8 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
 
     /* If there is not a background saving/rewrite in progress check if
      * we have to save/rewrite now */
-    if (0 == pthread_spin_trylock(&server.state_spin))
+    if (server.state == SERVER_NORMAL)
     {
-        pthread_spin_unlock(&server.state_spin);
         for (j = 0; j < server.saveparamslen; j++) {
             struct saveparam *sp = server.saveparams+j;
 
@@ -1762,13 +1744,13 @@ void initServer(void) {
             server.syslog_facility);
     }
     /*MK ADD*/
-    pthread_spin_init(&server.state_spin,PTHREAD_PROCESS_SHARED);
+
     pthread_cond_init(&server.rdb_cond,NULL);
     pthread_mutex_init(&server.rdb_cond_mutex,NULL);
     pthread_attr_init(&server.rdb_attr);
     pthread_attr_setdetachstate(&server.rdb_attr,PTHREAD_CREATE_JOINABLE);
     pthread_create(&server.rdb_thread_id,& server.rdb_attr,rdbThread,NULL);
-
+    server.state = SERVER_NORMAL;
     /*MK END*/
     server.pid = getpid();
     server.current_client = NULL;
@@ -2371,10 +2353,9 @@ int prepareForShutdown(int flags) {
     if ((server.saveparamslen > 0 && !nosave) || save) {
         redisLog(REDIS_NOTICE,"Saving the final RDB snapshot before exiting.");
         /* Snapshotting. Perform a SYNC SAVE and exit */
-        while (0 != pthread_spin_trylock(&server.state_spin)){
+        while( server.state != SERVER_NORMAL){
             usleep(100);
         }
-        pthread_spin_unlock(&server.state_spin);
         int i;
         for (i = 0; i < server.dbnum; i ++){
                 redisDb *db;

@@ -663,14 +663,15 @@ struct clusterState;
 #ifdef _AIX
 #undef hz
 #endif
-
+#define SERVER_NORMAL   0
+#define SERVER_CKP      1
 struct redisServer {
     /*MK ADD*/
-    pthread_spinlock_t state_spin;
     pthread_cond_t rdb_cond;
     pthread_mutex_t rdb_cond_mutex;
     pthread_t rdb_thread_id;
     pthread_attr_t rdb_attr;
+    unsigned char state;
     /*MK END*/
     /* General */
     pid_t pid;                  /* Main process pid. */
