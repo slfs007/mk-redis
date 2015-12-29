@@ -36,6 +36,7 @@
 #include <stdint.h>
 #include <pthread.h>
 #include <string.h>
+
 #ifndef __DICT_H
 #define __DICT_H
 
@@ -89,6 +90,7 @@ typedef struct dictht {
     unsigned long sizemask;
     unsigned long used;
 } dictht;
+
 #define DICT_NORMAL     2
 #define DICT_CKP_0      0
 #define DICT_CKP_1      1
@@ -151,7 +153,6 @@ typedef void (dictScanFunction)(void *privdata, const dictEntry *de);
 
 #define dictHashKey(d, key) (d)->type->hashFunction(key)
 #define dictGetKey(he) ((he)->key)
-
 #define dictGetSignedIntegerVal(he) ((he)->v.s64)
 #define dictGetUnsignedIntegerVal(he) ((he)->v.u64)
 #define dictGetDoubleVal(he) ((he)->v.d)

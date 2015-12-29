@@ -625,7 +625,6 @@ int rdbSaveObject(rio *rdb, robj *o) {
         }
     } else if (o->type == REDIS_ZSET) {
         /* Save a sorted set value */
-
         if (o->encoding == REDIS_ENCODING_ZIPLIST) {
             size_t l = ziplistBlobLen((unsigned char*)o->ptr);
 

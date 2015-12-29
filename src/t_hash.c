@@ -40,11 +40,8 @@
 /*MK MODIFY*/
 void hashTypeTryConversion(robj *o, robj **argv, int start, int end) {
 
-
     if (o->encoding != REDIS_ENCODING_ZIPLIST) return;
-
     hashTypeConvert(o, REDIS_ENCODING_HT);
-
 }
 
 /* Encode given objects in-place when the hash uses a dict. */

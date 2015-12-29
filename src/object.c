@@ -303,6 +303,7 @@ void incrRefCount(robj *o) {
 
 void decrRefCount(robj *o) {
 
+    if (o->refcount <= 0) redisPanic("decrRefCount against refcount <= 0");
     if (o->refcount == 1) {
         switch(o->type) {
         case REDIS_STRING: freeStringObject(o); break;
@@ -314,7 +315,6 @@ void decrRefCount(robj *o) {
         }
         zfree(o);
     } else {
-
         o->refcount--;
     }
 }

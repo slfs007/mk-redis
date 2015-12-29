@@ -281,6 +281,7 @@ static  void _dictEntryDel(dict *d,dictEntry *de)
 }
 
 /*MK END*/
+
 /* -------------------------- hash functions -------------------------------- */
 
 /* Thomas Wang's 32 bit Mix Function */
@@ -566,7 +567,6 @@ int dictAdd(dict *d, void *key, void *val)
 
     /* Set the hash entry fields. */
     return DICT_OK;
-
 }
 
 /* Low level add. This function adds the entry but instead of setting
@@ -600,7 +600,6 @@ dictEntry *dictAddRaw(dict *d, void *key)
     /* Allocate the memory and store the new entry */
     ht = dictIsRehashing(d) ? &d->ht[1] : &d->ht[0];
     entry = _dictEntryNew(d);
-
     entry->next = ht->table[index];
     ht->table[index] = entry;
     ht->used++;
@@ -623,14 +622,12 @@ int dictReplace(dict *d, void *key, void *val)
     if (dictAdd(d, key, val) == DICT_OK)
         return 1;
     /* It already exists, get the entry */
-
     entry = dictFind(d, key);
     /* Set the new value and free the old one. Note that it is important
      * to do that in this order, as the value may just be exactly the same
      * as the previous one. In this context, think to reference counting,
      * you want to increment (set), and then decrement (free), and not the
      * reverse. */
-
     _dictFreeAndSetVal(d, entry, val);
     return 0;
 }
@@ -850,9 +847,8 @@ void dictReleaseIterator(dictIterator *iter)
     if (!(iter->index == -1 && iter->table == 0)) {
         if (iter->safe)
             iter->d->iterators--;
-       /* else
+        else
             assert(iter->fingerprint == dictFingerprint(iter->d));
-    */
     }
     zfree(iter);
 }
@@ -1212,7 +1208,6 @@ static int _dictKeyIndex(dict *d, const void *key)
     for (table = 0; table <= 1; table++) {
         idx = h & d->ht[table].sizemask;
         /* Search if this slot does not already contain the given key */
-
         he = d->ht[table].table[idx];
         while(he) {
             if (dictCompareKeys(d, key, he->key))

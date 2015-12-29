@@ -1181,7 +1181,6 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
             {
                 redisLog(REDIS_NOTICE,"%d changes in %d seconds. Saving...",
                     sp->changes, (int)sp->seconds);
-
                 rdbSaveBackground(server.rdb_filename);
                 break;
             }
@@ -2374,7 +2373,8 @@ int prepareForShutdown(int flags) {
             redisLog(REDIS_WARNING,"Error trying to save the DB, can't exit.");
             return REDIS_ERR;
         }
-    }    if (server.daemonize) {
+    }    
+    if (server.daemonize) {
         redisLog(REDIS_NOTICE,"Removing the pid file.");
         unlink(server.pidfile);
     }

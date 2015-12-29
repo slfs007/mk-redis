@@ -1331,11 +1331,8 @@ void zaddGenericCommand(redisClient *c, int flags) {
                     znode = zslInsert(zs->zsl,score,curobj);
                     incrRefCount(curobj); /* Re-inserted in skiplist. */
                     /*MK MODIFY ,MAYBY HAVE BUG */
-                    void *val;
-                    val = dictGetVal(de);
-                    val = &znode->score; /* Update score ptr. */
-                    de->v.val[0] = val;
-                    de->v.val[1] = val;
+                    de->v.val[0] = &znode->score;
+                    de->v.val[1] = &znode->score;
                     /*MK END*/
                     server.dirty++;
                     updated++;
